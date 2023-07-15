@@ -6,7 +6,7 @@ uniform vec2 u_resolution;
 varying vec2 v_uv;
 varying float v_info;
 varying float v_angle;
-varying float v_surfactype;
+varying vec3 v_diffuse;
 uniform float u_postproc;
 
 uniform sampler2D u_randomTexture;
@@ -220,148 +220,36 @@ vec3 hardMixBlend(vec3 col1, vec3 col2) {
     return result;
 }
 
-void main2() {
-
-    float alpha = 1.;
-    float rnd = rand(vec2(v_uv.x, v_uv.y));
-
-    float var = v_uv.x * .00051;
-    var = v_uv.x*.5;
-
-    float vix = rand(vec2(v_info, v_info)/3.)*0.;
-
-    float sm1 = .1;
-    float sm2 = .9;
-    float pw = 1.;
-    float shiftr = u_seed.x*12.;
-    float shiftg = u_seed.y*12.;
-    float shiftb = u_seed.z*12. * floor(v_info);
-    
-    float freq = .25 + 1.*hash12(vec2(u_seed.r*1.234, u_seed.g*3.231+u_seed.b*3.1));
-    freq *= 1. + 1.3*pow(clamp(v_uv.x, 0., 1.), 4.);
-    freq = 1.;
-    float xx = var*.71*freq;
-    float r = power(smoothstep(sm1, sm2, simplex3d(1.*vec3(xx, xx, shiftr))), pw);
-    float g = power(smoothstep(sm1, sm2, simplex3d(1.*vec3(xx, xx, shiftg))), pw);
-    float b = power(smoothstep(sm1, sm2, simplex3d(1.*vec3(xx, xx, shiftb))), pw);
-    if(hash12(vec2(u_seed.r, u_seed.g+u_seed.b)) < -.5){
-        r = 0.5 + sin(xx*14. + shiftr*1112.13)*0.5;
-        g = 0.5 + sin(xx*14. + shiftg*1112.13)*0.5;
-        b = 0.5 + sin(xx*14. + shiftb*1112.13)*0.5;
-    }
-    
-    vec2 glfrg = vec2(gl_FragCoord.x, gl_FragCoord.y);
-    float s = sin(v_angle);
-    float c = cos(v_angle);
-    mat2 rot = mat2(c, -s, s, c);
-    glfrg = rot * glfrg;
-    float streak = hash12(vec2(mod(floor(glfrg.x), 334.12314)));
-    // streak = .5 + .5*sin(glfrg.x*0.1);
-    // streak = simplex3d(vec3(floor(v_uv.x*655.1)/1., v_uv.x*0.0, u_seed.x*0.+vix*0.));
-    // streak = 0.5 + 0.5*sin(v_uv.x*1555.  +streak*.1);
-
-    vec3 c0 = vec3(r,g,b);
-    vec3 streaks = vec3(streak);
-
-    // c0 = c0*.94 + (-.94+1.)*hardMixBlend(c0, streaks);
-    
-    if(u_postproc > 0.9){
-        c0 = c0 + .014*streaks;
-    }
-    // c0 = 1. - (1.-c0)*(1.-streaks*.1);
-    // c0 = streaks;
-
-    // c0 = goodmix(purple, yellow, r);
-    // c0 = goodmix(c0, orange, g*.5);
-    // c0 = goodmix(c0, blue, b*.25);
-    float nz = power(clamp(simplex3d(vec3(v_uv.x*0.94*2., v_uv.y*0.94, u_seed.x+vix*20.)), 0., 1.), 5.);
-    vec3 res = c0;
-
-    res = res + (1.-res)*.0;
-
-    gl_FragColor = vec4(res, alpha);  // RGBA, purple color
-    // if(u_seed.z < 0.001 && abs(u_version-1.0) < 0.001){
-    //     float hhhs = hash12(vec2(v_uv.x*.01, v_uv.y*.01));
-    //     gl_FragColor = vec4(hhhs*.9+.1, hhhs*.9+.1, hhhs*.9+.1, alpha);  // RGBA, purple color
-    // }
-    if(v_surfactype == 1.0){  // zebra
-        float ooo = power(clamp(simplex3d(vec3(v_uv.x, v_uv.y, u_seed.x*100.+vix*20. + 551.55)), 0., 1.), 3.);
-        ooo = fbm3(v_uv.xy*3., v_info*0.1);
-        ooo = smoothstep(.25, .75, ooo);
-        float uvx = v_uv.x + .07*fbm3(v_uv.xy*3., v_info*0.1);
-        float uvx2 = v_uv.x + .07*fbm3(v_uv.xy*3.-vec2(0., 0.06), v_info*0.1);
-        float oo = hash12(vec2(v_info*110.4, v_info*110.4));
-        float ix = (uvx*(77.+77.*oo));
-        float ix2 = (uvx2*(77.+77.*oo));
-        float rr1 = (.1 + .1*ooo)+.8*smoothstep(.96, 1.04, mod(ix, 2.));
-        float rr2 = (.1 + .1*ooo)+.8*smoothstep(.96, 1.04, mod(ix2, 2.));
-        rr1 *= .95 + (1.-.95)*(1.-v_uv.x);
-        gl_FragColor = vec4(vec3(rr1, rr1, rr1), alpha);  // RGBA, purple color
-    }
-    if(v_surfactype == 2.0){
-        float rnd = rand(vec2(v_uv.x, v_uv.y));
-        float var = v_uv.x;
-        float oo = hash12(vec2(v_info*0.4, v_info*0.4)) * 0. + 1.;
-        float ix = floor(v_uv.x*(99.+77.*oo));
-        float iy = floor(v_uv.y*(99.+77.*oo));
-        float rr = clamp(.05 + (mod(ix,  3.) * (mod(iy, 3.))), 0., 1.);
-        rr *= .9 + (1.-.9)*(1.-v_uv.x);
-        gl_FragColor = vec4(vec3(rr, rr, rr), alpha);  // RGBA, purple color
-    }
-    if(v_surfactype == 3.0){
-        vec2 varr = v_uv.xy*1.5;
-        float ooo = power(clamp(simplex3d(vec3(varr.x, varr.y, u_seed.x*100.+vix*20. + 551.55)), 0., 1.), 3.);
-        ooo = fbm3(varr.xy*3., v_info*0.1);
-        ooo = smoothstep(.25, .75, ooo);
-        float uvx = varr.y + .07*fbm3(varr.xy*3., v_info*0.1);
-        float uvx2 = varr.y + .07*fbm3(varr.xy*3.-vec2(0., 0.06), v_info*0.1);
-        float oo = hash12(vec2(v_info*110.4, v_info*110.4));
-        float ix = (uvx*(77.+36.*oo*2.+1.));
-        float ix2 = (uvx2*(77.+36.*oo*2.+1.));
-        float rr1 = (.1 + .1*ooo)+.8*smoothstep(.8, 1.2, mod(ix, 2.));
-        float rr2 = (.1 + .1*ooo)+.8*smoothstep(.8, 1.2, mod(ix2, 2.));
-        rr2 = 0.0;
-        if((ix < 12.-floor(12.*u_seed.y) || ix > 15.) && floor(mod(v_info, 2.)) < 0.5){
-            alpha = 0.;
-        }
-        rr1 *= .9 + (1.-.9)*(1.-varr.x);
-        gl_FragColor = vec4(vec3(rr1, rr1, rr1), alpha);  // RGBA, purple color
-    }
-    // gl_FragColor = vec4(vec3(v_uv.x, v_uv.y, 0.0), alpha);  // RGBA, purple color
-    // if(v_uv.x < 0.02 && v_uv.y < 0.02)
-    //     gl_FragColor = vec4(vec3(1.), alpha);  // RGBA, purple color
-    // else
-    //     gl_FragColor = vec4(vec3(0.0, 0.0, 0.0), alpha);  // RGBA, purple color
-}
-
 void main() {
 
-    vec3 result = vec3(1.);
+    // vec3 result = vec3(1.);
 
-    if(mod(v_info, 2.) == 0.){
-        result = vec3(0.);
-    }
-    else{
-        if(mod(v_info, 3.) == 0.){
-            result = vec3(1., 0., 0.);
-        }
-        if(mod(v_info, 3.) == 1.){
-            result = vec3(0., 1., 0.);
-        }
-    }
+    // if(mod(v_info, 2.) == 0.){
+    //     result = vec3(0.);
+    // }
+    // else{
+    //     if(mod(v_info, 3.) == 0.){
+    //         result = vec3(1., 0., 0.);
+    //     }
+    //     if(mod(v_info, 3.) == 1.){
+    //         result = vec3(0., 1., 0.);
+    //     }
+    // }
     
-    if(mod(v_info, 3.) == 0.){
-        result = vec3(1., 0., 0.);
-    }
-    if(mod(v_info, 3.) == 1.){
-        result = vec3(0., 1., 0.);
-    }
-    if(mod(v_info, 3.) == 2.){
-        result = vec3(0., 0., 1.);
-    }
-    if(mod(v_info, 6.) == 0.){
-        result = vec3(0., 0., 0.);
-    }
+    // if(mod(v_info, 3.) == 0.){
+    //     result = vec3(1., 0., 0.);
+    // }
+    // if(mod(v_info, 3.) == 1.){
+    //     result = vec3(0., 1., 0.);
+    // }
+    // if(mod(v_info, 3.) == 2.){
+    //     result = vec3(0., 0., 1.);
+    // }
+    // if(mod(v_info, 6.) == 0.){
+    //     result = vec3(0., 0., 0.);
+    // }
 
-    gl_FragColor = vec4(vec3(result.r, result.g, result.b), 1.0);  // RGBA, purple color
+    // gl_FragColor = vec4(vec3(result.r, result.g, result.b), 1.0);  // RGBA, purple color
+
+    gl_FragColor = vec4(v_diffuse.rgb, 1.0);
 }

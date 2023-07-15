@@ -4,6 +4,7 @@ uniform sampler2D u_texture;
 uniform vec2 u_resolution;
 uniform vec3 u_seed;
 uniform float u_postproc;
+uniform vec3 u_margincolor;
 
 
 uniform sampler2D u_bluenoiseTexture;
@@ -204,7 +205,19 @@ vec3 antialiasedTexture(vec2 uv, vec2 resolution, float radius, float intensity)
 }
 
 void main() {
-    vec3 color = texture2D(u_texture, v_uv).rgb;
+
+    vec2 qv_uv = v_uv;
+    vec2 oo = vec2(
+        floor(60. + 144.*hash12(vec2(u_seed.x, u_seed.x))),
+        floor(60. + 144.*hash12(vec2(u_seed.x+31.41, u_seed.x+31.41)))
+    );
+    qv_uv.xy = floor(qv_uv.xy * oo) / oo;
+
+    vec3 color = texture2D(u_texture, qv_uv).rgb;
+    vec3 qcolor = texture2D(u_texture, qv_uv).rgb;
+
+
+    // color = qcolor;
 
     // color = antialiasedTexture(v_uv, u_resolution, 1., .5);
 
@@ -219,21 +232,22 @@ void main() {
 
     float nnz = smoothstep(.2, .5, pow(fbm3(v_uv*77. + 0.1, 4.55+u_seed.z), 3.));
     sh *= 1. + nnz*1.;
-    vec3 colorshifted = texture2D(u_texture, v_uv + sh).rgb;
+    vec3 colorshifted = texture2D(u_texture, qv_uv + sh).rgb;
 
-    vec3 blurred1 = blur(v_uv, u_resolution, 1., .1);
-    vec3 blurred2 = blur2(v_uv, u_resolution, 1., .1);
+    vec3 blurred1 = blur(qv_uv, u_resolution, 1., .1);
+    vec3 blurred2 = blur2(qv_uv, u_resolution, 1., .1);
 
     vec3 result = blurred1;
+    result = color;
     // result = result + (vec3(1.) - result)*.0;
 
     vec2 abspos = v_uv * u_resolution;
-    float marg = min(u_resolution.x, u_resolution.y) * .01;
+    float marg = min(u_resolution.x, u_resolution.y) * .009;
 
     if(u_postproc > 0.9){
         result = result + .096*(-.5 + salt);
         // vec3 bluenosie = texture2D(u_bluenoiseTexture, mod(gl_FragCoord.xy/u_bluenoiseTextureSize + u_seed.rg*12.31, 1.)*.495).rgb;
-        // vec3 blueblured = blur3(v_uv, u_resolution, 1., .1);
+        // vec3 blueblured = blur3(qv_uv, u_resolution, 1., .1);
         // bluenosie = smoothstep(.7, .7+.1, bluenosie);
         // vec3 result2 = result*.5 + (-.5+1.)*hardMixBlend(result, vec3(hash12(mod(gl_FragCoord.xy*.5 + u_seed.rg*132.31, 111.))));
         vec3 result2 = result*.25 + (-.25+1.)*hardMixBlend(result, vec3(hash12(mod(gl_FragCoord.xy + u_seed.rg*132.31, 111.))));
@@ -242,10 +256,16 @@ void main() {
     }
     if(abspos.x < marg || abspos.x > u_resolution.x - marg || abspos.y < marg || abspos.y > u_resolution.y - marg){
         result = vec3(.15);
+        result = vec3(u_margincolor);
     }
     result = clamp(result, 0., 1.);
 
     gl_FragColor = vec4(result.rgb, 1.);
+
+    if(u_postproc < .1){
+        gl_FragColor = vec4(color.rgb, 1.);
+    }
+
     // gl_FragColor = vec4(vec3(hash12(mod(gl_FragCoord.xy*.5 + u_seed.rg*132.31, 111.))), 1.);
 
     // // // gl frag pos
