@@ -220,7 +220,7 @@ vec3 hardMixBlend(vec3 col1, vec3 col2) {
     return result;
 }
 
-void main() {
+void main2() {
 
     float alpha = 1.;
     float rnd = rand(vec2(v_uv.x, v_uv.y));
@@ -334,22 +334,34 @@ void main() {
     //     gl_FragColor = vec4(vec3(0.0, 0.0, 0.0), alpha);  // RGBA, purple color
 }
 
-void main2() {
+void main() {
 
-    float rnd = rand(vec2(v_uv.x, v_uv.y));
+    vec3 result = vec3(1.);
 
-    float var = v_uv.x;
-
-    float oo = hash12(vec2(v_info*0.4, v_info*0.4)) * 0. + 1.;
-    float ix = floor(v_uv.x*(111.+77.*oo));
-    float iy = floor(v_uv.y*(111.+77.*oo));
-
-    float rr = (mod(ix, 2.) * (mod(iy, 2.)));
-
-    gl_FragColor = vec4(vec3(rr, rr, rr), 1.0);  // RGBA, purple color
-    if(u_seed.z < 0.001){
-        float hhhs = hash12(vec2(v_uv.x*444.4, v_uv.y*444.4));
-        gl_FragColor = vec4(hhhs*.9+.1, hhhs*.9+.1, hhhs*.9+.1, 1.0);  // RGBA, purple color
+    if(mod(v_info, 2.) == 0.){
+        result = vec3(0.);
+    }
+    else{
+        if(mod(v_info, 3.) == 0.){
+            result = vec3(1., 0., 0.);
+        }
+        if(mod(v_info, 3.) == 1.){
+            result = vec3(0., 1., 0.);
+        }
+    }
+    
+    if(mod(v_info, 3.) == 0.){
+        result = vec3(1., 0., 0.);
+    }
+    if(mod(v_info, 3.) == 1.){
+        result = vec3(0., 1., 0.);
+    }
+    if(mod(v_info, 3.) == 2.){
+        result = vec3(0., 0., 1.);
+    }
+    if(mod(v_info, 6.) == 0.){
+        result = vec3(0., 0., 0.);
     }
 
+    gl_FragColor = vec4(vec3(result.r, result.g, result.b), 1.0);  // RGBA, purple color
 }

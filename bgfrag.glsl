@@ -192,8 +192,21 @@ vec3 hardMixBlend(vec3 col1, vec3 col2) {
     return result;
 }
 
+vec3 antialiasedTexture(vec2 uv, vec2 resolution, float radius, float intensity) {
+    vec3 color = vec3(0.);
+    vec2 step = 3. / resolution;
+    for(float x = -1.0; x <= 1.0; x += 1.) {
+        for(float y = -1.0; y <= 1.0; y += 1.) {
+            color += texture2D(u_texture, uv + vec2(x, y) / resolution).rgb;
+        }
+    }
+    return color/9.;
+}
+
 void main() {
     vec3 color = texture2D(u_texture, v_uv).rgb;
+
+    // color = antialiasedTexture(v_uv, u_resolution, 1., .5);
 
     float saltx = rand(v_uv + 0.3 + u_seed.x);
     float salty = rand(v_uv + 0.3 + u_seed.x);

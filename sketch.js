@@ -24,7 +24,7 @@ let ASPECT;
 let EDGE_OFFSET;
 let THICKNESS;
 let VERSION;
-let POSTPROC = 1;
+let POSTPROC = 0;
 
 let DIM = 2000;
 let REN = window.innerHeight*2;
@@ -49,7 +49,7 @@ function main(options) {
     angles = [];
     surfacetypes = [];
     
-    SCALE = 4;
+    SCALE = 1;
     //ASPECT = aspects[Math.floor(prng.rand()*aspects.length)];
     ASPECT = options.aspect;
     VERSION = options.version;
@@ -66,15 +66,15 @@ function main(options) {
         canvas = document.getElementById("canvas");
     onresize(null);
     if(!gl)
-        gl = canvas.getContext('webgl', {preserveDrawingBuffer: true, antialias: true});
+        gl = canvas.getContext('webgl2', {preserveDrawingBuffer: true, antialias: true});
 
     gl.canvas.width = REN;
     gl.canvas.height = Math.round(REN/ASPECT);
 
     gl.viewport(0, 0, REN, Math.round(REN/ASPECT));
 
-    setupCurves(options);
-    if(DEBUG) previewCurves()
+    // setupCurves(options);
+    // if(DEBUG) previewCurves()
     constructQuads();
 
     render();
@@ -176,6 +176,7 @@ function createAndSetupBuffer(gl, data, attributeLocation, size) {
 }
 
 let blueNoiseTexture;
+let doPostProcessing = true;
 
 function render(){
     let fragmentCode = getShaderSource("frag.glsl");
@@ -185,8 +186,6 @@ function render(){
     let fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentCode);
 
     let program = createProgram(gl, vertexShader, fragmentShader);
-
-
 
     gl.useProgram(program);
     gl.lineWidth(11);
@@ -198,14 +197,10 @@ function render(){
     let seedUniformLocation = gl.getUniformLocation(program, "u_seed");
     let versionUniformLocation = gl.getUniformLocation(program, "u_version");
 
-    // let colorUniformLocation = gl.getUniformLocation(program, "u_color");
-
     gl.uniform2f(resolutionUniformLocation, REN, Math.round(REN/ASPECT));
     gl.uniform2f(simulationUniformLocation, DIM, Math.round(DIM/ASPECT));
     
     let randomtexture = getRandomTexture();
-    // if(!blueNoiseTexture)
-    //     blueNoiseTexture = getBlueNoiseTexture();
 
     let seedr = prng.rand();
     let seedg = prng.rand();
@@ -221,24 +216,32 @@ function render(){
     let _buf4 = createAndSetupBuffer(gl, angles,       gl.getAttribLocation(program, "a_angle"), 1);
     let _buf5 = createAndSetupBuffer(gl, surfacetypes, gl.getAttribLocation(program, "a_surfactype"), 1);
 
-    // gl.bindBuffer(gl.ARRAY_BUFFER, transformBuffer);
-    // gl.bufferData(gl.ARRAY_BUFFER, transforms, gl.STATIC_DRAW);
-    // gl.enableVertexAttribArray(transformAttributeLocation);
-    // gl.vertexAttribPointer(transformAttributeLocation, 3, type, normalize, stride, offset);
 
     let framebuffer = gl.createFramebuffer();
     gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+
 
     let texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, REN, Math.round(REN/ASPECT), 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    // gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, REN, Math.round(REN/ASPECT), 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-
+    
+    // Create and setup renderbuffer for multisampling
+    let renderbuffer = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, renderbuffer);
+    gl.renderbufferStorageMultisample(gl.RENDERBUFFER, 4, gl.RGBA8, REN, Math.round(REN/ASPECT));
+    
+    // Attach the renderbuffer and texture to the framebuffer
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, renderbuffer);
+    
+    // Check the framebuffer is complete
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+        console.error('Error setting up framebuffer');
+    }
 
     gl.activeTexture(gl.TEXTURE0 + 0);
     gl.bindTexture(gl.TEXTURE_2D, randomtexture);
@@ -274,6 +277,59 @@ function render(){
         gl.drawArrays(gl.TRIANGLE_STRIP, offset, 4);
     }
 
+    // Create a new framebuffer to resolve multisampling into
+    let resolveFramebuffer = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, resolveFramebuffer);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+
+    // Blit the multisampled renderbuffer to the texture
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, framebuffer);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, resolveFramebuffer);
+    gl.blitFramebuffer(
+        0, 0, REN, Math.round(REN/ASPECT),  // src rectangle
+        0, 0, REN, Math.round(REN/ASPECT),  // dst rectangle
+        gl.COLOR_BUFFER_BIT,  // buffer mask
+        gl.NEAREST  // interpolation
+    );
+
+    
+    const quadVertices = [
+        -1, -1,
+         1, -1,
+        -1,  1,
+         1,  1
+    ];
+    if(!(POSTPROC == 1)) {
+        // gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+        let displayProgram = createProgram(gl, vertexShader, fragmentShader); // you can replace this with shaders that just display the texture
+        gl.useProgram(displayProgram);
+        
+        let displayPositionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, displayPositionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(quadVertices), gl.STATIC_DRAW);
+        
+        let displayPositionAttributeLocation = gl.getAttribLocation(displayProgram, "a_position");
+        let displayTextureUniformLocation = gl.getUniformLocation(displayProgram, "u_texture");
+        
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.uniform1i(displayTextureUniformLocation, 0);
+        
+        gl.enableVertexAttribArray(displayPositionAttributeLocation);
+        gl.vertexAttribPointer(
+            displayPositionAttributeLocation,
+            2,
+            gl.FLOAT,
+            false,
+            0,
+            0
+        );
+        
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        return;
+    }
+
     let bgFragmentCode = getShaderSource("bgfrag.glsl");
     let bgVertexCode = getShaderSource("bgvert.glsl");
 
@@ -283,37 +339,21 @@ function render(){
     let bgProgram = createProgram(gl, bgVertexShader, bgFragmentShader);
 
     gl.useProgram(bgProgram);
-    const quadVertices = [
-        -1, -1,
-         1, -1,
-        -1,  1,
-         1,  1
-    ];
     let backgroundPositionBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, backgroundPositionBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(quadVertices), gl.STATIC_DRAW);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);  // unbind the framebuffer
 
-    // Now bind the texture and draw a screen-sized quad using your post-processing shader:
-    // gl.bindTexture(gl.TEXTURE_2D, randomtexture);
-    // Setup and draw your screen-sized quad
     let bgPositionAttributeLocation = gl.getAttribLocation(bgProgram, "a_position");
     let uTextureUniformLocation = gl.getUniformLocation(bgProgram, "u_texture");
 
     gl.activeTexture(gl.TEXTURE0+0);
-    // Now bind the texture and draw a screen-sized quad using your post-processing shader:
     gl.bindTexture(gl.TEXTURE_2D, texture);
-    // Pass the texture to the shader
     gl.uniform1i(uTextureUniformLocation, 0);
     gl.uniform2f(gl.getUniformLocation(bgProgram, "u_resolution"), REN, Math.round(REN/ASPECT));
     gl.uniform3f(gl.getUniformLocation(bgProgram, "u_seed"), prng.rand(), prng.rand(), prng.rand());
     gl.uniform1f(gl.getUniformLocation(bgProgram, "u_postproc"), POSTPROC);
 
-    
-    // gl.activeTexture(gl.TEXTURE0 + 1);
-    // gl.bindTexture(gl.TEXTURE_2D, blueNoiseTexture);
-    // gl.uniform1i(gl.getUniformLocation(bgProgram, "u_bluenoiseTexture"), 1);
-    // gl.uniform2f(gl.getUniformLocation(bgProgram, "u_bluenoiseTextureSize"), 256, 256);
 
     let bgPositionBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, bgPositionBuffer);
@@ -322,103 +362,54 @@ function render(){
     gl.enableVertexAttribArray(bgPositionAttributeLocation);
     gl.vertexAttribPointer(
         bgPositionAttributeLocation,
-        2,           // number of components per vertex attribute
-        gl.FLOAT,    // data type
-        false,       // normalized
-        0,           // stride, 0 = auto
-        0            // start position in buffer
+        2,         
+        gl.FLOAT,   
+        false,     
+        0,         
+        0         
     );
 
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
 
 function constructQuads(){
-    for(let i = 0; i < curves.length; i++){
-        let points = curves[i];
+   
     
-        let bounceVectors = [];
-        bounceVectors.push(new Vector(points[1].x - points[0].x, points[1].y - points[0].y));
-        for(let j = 1; j < points.length-1; j++){
-            let vec1 = new Vector(points[j-1].x - points[j].x, points[j-1].y - points[j].y);
-            let vec2 = new Vector(points[j+1].x - points[j].x, points[j+1].y - points[j].y);
-            vec1.normalize();
-            vec2.normalize();
-            let bounceVec = new Vector(vec1.x + vec2.x, vec1.y + vec2.y);
-            bounceVec.normalize();
-            bounceVectors.push(bounceVec);
-        }
-        bounceVectors.push(new Vector(points[points.length-2].x - points[points.length-1].x, points[points.length-2].y - points[points.length-1].y));
-    
-        let leftAnchors = [];
-        let rightAnchors = [];
-        let bv = bounceVectors[0];
-        bv.rotate(-Math.PI/2);
-        bv.normalize();
-        leftAnchors.push(new Vector(points[0].x + bv.x * THICKNESS*.75, points[0].y + bv.y * THICKNESS*.75));
-        rightAnchors.push(new Vector(points[0].x - bv.x * THICKNESS*.75, points[0].y - bv.y * THICKNESS*.75));
-        for(let j = 1; j < points.length-1; j++){
-            let toprev = new Vector(points[j-1].x - points[j].x, points[j-1].y - points[j].y);
-            toprev.normalize();
-            if(j%2 == 0){
-                bv = bounceVectors[j].clone();
-                bv.normalize();
-                let ddot = toprev.dot(bv);
-                ddot = Math.min(Math.max(ddot, -1), 1);
-                let angle = Math.acos(ddot);
-                let fac = Math.sqrt(1 + Math.pow(Math.tan(angle), 2));
-                bv.rotate(-Math.PI/2);
-                leftAnchors.push(new Vector(points[j].x + bv.x * THICKNESS*.75*fac, points[j].y + bv.y * THICKNESS*.75*fac));
-                rightAnchors.push(new Vector(points[j].x - bv.x * THICKNESS*.75*fac, points[j].y - bv.y * THICKNESS*.75*fac));
-            }
-            else{
-                bv = bounceVectors[j].clone();
-                bv.normalize();
-                let ddot = toprev.dot(bv);
-                ddot = Math.min(Math.max(ddot, -1), 1);
-                let angle = Math.acos(ddot);
-                let fac = Math.sqrt(1 + Math.pow(Math.tan(angle), 2));
-                bv.rotate(+Math.PI/2);
-                leftAnchors.push(new Vector(points[j].x + bv.x * THICKNESS*.75*fac, points[j].y + bv.y * THICKNESS*.75*fac));
-                rightAnchors.push(new Vector(points[j].x - bv.x * THICKNESS*.75*fac, points[j].y - bv.y * THICKNESS*.75*fac));
-            }
-        }
-        bv = bounceVectors[bounceVectors.length-1];
-        if(bounceVectors.length%2 == 0)
-            bv.rotate(+Math.PI/2);
-        else
-            bv.rotate(-Math.PI/2);
-        bv.normalize();
-        leftAnchors.push(new Vector(points[points.length-1].x + bv.x * THICKNESS*.75, points[points.length-1].y + bv.y * THICKNESS*.75));
-        rightAnchors.push(new Vector(points[points.length-1].x - bv.x * THICKNESS*.75, points[points.length-1].y - bv.y * THICKNESS*.75));
-    
-        for(let j = 0; j < leftAnchors.length-1; j++){
-            let p1 = leftAnchors[j];
-            let p2 = rightAnchors[j];
-            let p3 = leftAnchors[j+1];
-            let p4 = rightAnchors[j+1];
+    let aaa = DIM;
+    let bbb = Math.floor(DIM/ASPECT);
+    let margin = aaa*.12;
 
-            let offset_0 = p1.clone();
-            let angle_0 = Math.atan2(p3.y - p1.y, p3.x - p1.x); 
-            
-            // let angle = Math.atan2(curve[i].y - curve[i+1].y, curve[i].x - curve[i+1].x);
-            
-            let p13 = new Vector(p3.x - p1.x, p3.y - p1.y);
-            let p34 = new Vector(p4.x - p3.x, p4.y - p3.y);
-            let p31 = new Vector(p1.x - p3.x, p1.y - p3.y);
-            let p24 = new Vector(p4.x - p2.x, p4.y - p2.y);
-            let p42 = new Vector(p2.x - p4.x, p2.y - p4.y);
-            let aa = p13.length();
-            let bb = p24.length();
-            let avgdist = (aa + bb)/2;
-            p13.normalize();
-            p31.normalize();
-            p24.normalize();
-            p42.normalize();
-            let p12 = new Vector(p2.x - p1.x, p2.y - p1.y);
-            let dot1 = p12.dot(p13);
-            let np1, np2, np3, np4, np5, np6, np7, np8;
-            addquadpointstoattributes(p1, p2, p3, p4, [0, 0], [0, 1], [1, 0], [1, 1], avgdist, j, offset_0, angle_0);
+    let stripeThickness = 5;
+    let nx = 299;
+    for(let kx = 0; kx < nx; kx ++){
+        let x1 = map(kx, 0, nx-1, margin+stripeThickness/2, aaa-margin-stripeThickness/2) + stripeThickness;
+        let x2 = map(kx, 0, nx-1, margin+stripeThickness/2, aaa-margin-stripeThickness/2) - stripeThickness;
+        let x3 = map(kx, 0, nx-1, margin+stripeThickness/2, aaa-margin-stripeThickness/2) + stripeThickness;
+        let x4 = map(kx, 0, nx-1, margin+stripeThickness/2, aaa-margin-stripeThickness/2) - stripeThickness;
+
+        let p1 = new Vector(x1, margin);
+        let p2 = new Vector(x2, margin);
+        let p3 = new Vector(x3, bbb-margin);
+        let p4 = new Vector(x4, bbb-margin);
+
+        let midx = (p1.x + p2.x + p3.x + p4.x)/4;
+        let midy = (p1.y + p2.y + p3.y + p4.y)/4;
+        let mid = new Vector(midx, midy);
+
+        let angle = .0025 * (-1 + 2*(kx%2));
+
+        if(kx%3 == 0){
+            // angle *= 3.;
         }
+
+        p1.sub(mid).rotate(angle).add(mid);
+        p2.sub(mid).rotate(angle).add(mid);
+        p3.sub(mid).rotate(angle).add(mid);
+        p4.sub(mid).rotate(angle).add(mid);
+
+        let offset_0 = p1.clone();
+        let angle_0 = Math.atan2(p3.y - p1.y, p3.x - p1.x); 
+        addquadpointstoattributes(p1, p2, p3, p4, [0, 0], [0, 1], [1, 0], [1, 1], kx, offset_0, angle_0);
     }
 
     const flatten = arr => arr.reduce(
@@ -434,7 +425,7 @@ function constructQuads(){
     surfacetypes = new Float32Array(flatten(surfacetypes));
 }
 
-function addquadpointstoattributes(p1, p2, p3, p4, uv1=[0,0], uv2=[0,1], uv3=[1,0], uv4=[1,1], avgdist=1., j=0, offset_0=new Vector(0, 0), angle_0=0){
+function addquadpointstoattributes(p1, p2, p3, p4, uv1=[0,0], uv2=[0,1], uv3=[1,0], uv4=[1,1], j=0, offset_0=new Vector(0, 0), angle_0=0){
     quads.push(
         [
             [p1.x, p1.y],
@@ -556,7 +547,7 @@ function setupCurves(options){
     let aaa = DIM;
     let bbb = Math.floor(DIM/ASPECT);
     let margin = aaa*.12;
-    let numangles = 14;
+    let numangles = 114;
 
     while(!success && ctries++ < 100){
         let pos = new Vector(aaa/2 + rand(-222, 222), bbb/2 + rand(-222, 222));
