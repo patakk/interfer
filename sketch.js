@@ -205,7 +205,6 @@ function render(){
     let seedr = prng.rand();
     let seedg = prng.rand();
     let seedb = prng.rand();
-    console.log('seedr = ' + seedr.toFixed(6) + ';\nseedg = ' + seedg.toFixed(6) +  ';\nseedb = ' + seedb.toFixed(6) + ";");
 
     gl.uniform3f(seedUniformLocation, seedr, seedg, seedb);
     gl.uniform1f(versionUniformLocation, VERSION);
